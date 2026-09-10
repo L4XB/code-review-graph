@@ -8622,6 +8622,34 @@ class CodeParser:
         {"arrow_function", "function_expression", "function"},
     )
 
+    # Wrapper calls nest at most this deep before we give up: memo(forwardRef(fn)).
+    _JS_WRAPPER_MAX_DEPTH = 3
+
+    def _js_wrapped_function(self, call_node, _depth: int = 0):
+        """Return the function literal a wrapper call receives, if any.
+
+        ``forwardRef(fn)``, ``memo(fn)``, ``observer(fn)``, ``withRouter(fn)`` and
+        ``styled(Base)(fn)`` all put the component's function inside a
+        ``call_expression`` instead of assigning it directly, and nested wrappers
+        (``memo(forwardRef(fn))``) are unwrapped. Calls without a function argument
+        (``createClient({...})``, ``styled.div`...```) return None.
+        """
+        arguments = None
+        for sub in call_node.children:
+            if sub.type == "arguments":
+                arguments = sub
+                break
+        if arguments is None:
+            return None
+        for arg in arguments.named_children:
+            if arg.type in self._JS_FUNC_VALUE_TYPES:
+                return arg
+            if arg.type == "call_expression" and _depth < self._JS_WRAPPER_MAX_DEPTH:
+                inner = self._js_wrapped_function(arg, _depth + 1)
+                if inner is not None:
+                    return inner
+        return None
+
     def _extract_js_var_functions(
         self,
         child,
@@ -8642,6 +8670,7 @@ class CodeParser:
           const foo = () => {}
           let bar = function() {}
           export const baz = (x: number): string => x.toString()
+          export const Button = forwardRef((props, ref) => <button ref={ref} />)
 
         Returns True if at least one function was extracted from the
         declaration, so the caller can skip generic recursion.
@@ -8659,6 +8688,10 @@ class CodeParser:
                     var_name = sub.text.decode("utf-8", errors="replace")
                 elif sub.type in self._JS_FUNC_VALUE_TYPES:
                     func_node = sub
+                elif sub.type == "call_expression":
+                    # Higher-order wrappers (forwardRef, memo, observer, ...) hide
+                    # the component's function inside the call's arguments.
+                    func_node = self._js_wrapped_function(sub)
 
             if not var_name or not func_node:
                 continue
