@@ -8631,8 +8631,14 @@ class CodeParser:
         ``forwardRef(fn)``, ``memo(fn)``, ``observer(fn)``, ``withRouter(fn)`` and
         ``styled(Base)(fn)`` all put the component's function inside a
         ``call_expression`` instead of assigning it directly, and nested wrappers
-        (``memo(forwardRef(fn))``) are unwrapped. Calls without a function argument
-        (``createClient({...})``, ``styled.div`...```) return None.
+        (``memo(forwardRef(fn))``) are unwrapped.
+
+        The call must take that function as its ONLY argument. A call that takes a
+        callback among others is not defining a component, it is computing a value:
+        ``choose(() => left(), () => right())`` and ``useMemo(() => x, [dep])``
+        assign whatever the call returns, so naming the variable after the first
+        callback would invent a function that does not exist. Calls without a
+        function argument (``createClient({...})``) return None as well.
         """
         arguments = None
         for sub in call_node.children:
@@ -8641,13 +8647,14 @@ class CodeParser:
                 break
         if arguments is None:
             return None
-        for arg in arguments.named_children:
-            if arg.type in self._JS_FUNC_VALUE_TYPES:
-                return arg
-            if arg.type == "call_expression" and _depth < self._JS_WRAPPER_MAX_DEPTH:
-                inner = self._js_wrapped_function(arg, _depth + 1)
-                if inner is not None:
-                    return inner
+        args = arguments.named_children
+        if len(args) != 1:
+            return None
+        arg = args[0]
+        if arg.type in self._JS_FUNC_VALUE_TYPES:
+            return arg
+        if arg.type == "call_expression" and _depth < self._JS_WRAPPER_MAX_DEPTH:
+            return self._js_wrapped_function(arg, _depth + 1)
         return None
 
     def _extract_js_var_functions(
@@ -8683,15 +8690,25 @@ class CodeParser:
             # Find identifier and function value
             var_name = None
             func_node = None
+            # What the body walk covers. For a wrapped component that is the whole
+            # call, not just the function it wraps: the wrapper itself is a call
+            # the component makes, and so is anything else in the argument list.
+            walk_node = None
             for sub in declarator.children:
                 if sub.type == "identifier" and var_name is None:
                     var_name = sub.text.decode("utf-8", errors="replace")
                 elif sub.type in self._JS_FUNC_VALUE_TYPES:
                     func_node = sub
+                    walk_node = sub
                 elif sub.type == "call_expression":
                     # Higher-order wrappers (forwardRef, memo, observer, ...) hide
                     # the component's function inside the call's arguments.
-                    func_node = self._js_wrapped_function(sub)
+                    wrapped = self._js_wrapped_function(sub)
+                    if wrapped is not None:
+                        # Signature comes from the function, the walk from the
+                        # declarator, so the wrapper call itself is recorded too.
+                        func_node = wrapped
+                        walk_node = declarator
 
             if not var_name or not func_node:
                 continue
@@ -8728,7 +8745,7 @@ class CodeParser:
 
             # Recurse into the function body for calls
             self._extract_from_tree(
-                func_node, source, language, file_path, nodes, edges,
+                walk_node or func_node, source, language, file_path, nodes, edges,
                 enclosing_class=enclosing_class,
                 enclosing_func=var_name,
                 import_map=import_map,

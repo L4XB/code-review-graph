@@ -86,3 +86,58 @@ def test_jsx_use_of_a_wrapped_component_targets_an_existing_node(tmp_path):
     calls = [edge for edge in toolbar_edges if edge.kind == "CALLS"]
     assert any(edge.target == f"{button_path.resolve().as_posix()}::Button" for edge in calls)
     assert "Button" in _functions(button_nodes)
+
+
+def _call_pairs(path: Path, edges):
+    prefix = f"{path.resolve().as_posix()}::"
+    return {
+        (edge.source.replace(prefix, ""), edge.target.rsplit("::", 1)[-1].rsplit("/", 1)[-1])
+        for edge in edges
+        if edge.kind == "CALLS"
+    }
+
+
+def test_a_callback_taking_call_is_not_a_component_definition(tmp_path):
+    """A call that takes a callback among others computes a value, it does not
+    define a function. Naming the variable after the first callback would invent
+    one and drop the wrapper and the other arguments."""
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "setup.js",
+        "function setup() { const result = choose(() => left(), () => right()); return result; }\n",
+    )
+
+    assert set(_functions(nodes)) == {"setup"}
+    assert _call_pairs(path, edges) == {
+        ("setup", "choose"),
+        ("setup", "left"),
+        ("setup", "right"),
+    }
+
+
+def test_a_two_argument_hook_keeps_its_calls_on_the_enclosing_function(tmp_path):
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "hook.js",
+        "function setup() { const value = useMemo(() => compute(), [dep]); return value; }\n",
+    )
+
+    assert set(_functions(nodes)) == {"setup"}
+    assert _call_pairs(path, edges) == {("setup", "useMemo"), ("setup", "compute")}
+
+
+def test_a_wrapped_component_keeps_the_wrapper_calls(tmp_path):
+    """The wrapper is a call the component makes; indexing the component must not
+    swallow it, at either nesting level."""
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "Card.jsx",
+        "export const Card = memo(forwardRef((props, ref) => { paint(); return null; }));\n",
+    )
+
+    assert set(_functions(nodes)) == {"Card"}
+    assert _call_pairs(path, edges) == {
+        ("Card", "memo"),
+        ("Card", "forwardRef"),
+        ("Card", "paint"),
+    }
