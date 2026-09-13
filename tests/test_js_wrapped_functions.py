@@ -126,18 +126,72 @@ def test_a_two_argument_hook_keeps_its_calls_on_the_enclosing_function(tmp_path)
     assert _call_pairs(path, edges) == {("setup", "useMemo"), ("setup", "compute")}
 
 
-def test_a_wrapped_component_keeps_the_wrapper_calls(tmp_path):
-    """The wrapper is a call the component makes; indexing the component must not
-    swallow it, at either nesting level."""
+def test_a_wrapped_component_keeps_the_wrapper_calls_in_the_enclosing_scope(tmp_path):
+    """The wrapper runs where the declaration is, not inside the component it makes.
+
+    This case used to assert ("Card", "memo"), which read the other way round: the
+    component was credited with a call made before it existed, and on a declaration
+    inside a function that moved the call off the function that really makes it (#972).
+    """
     path, (nodes, edges) = _parse(
         tmp_path,
         "Card.jsx",
-        "export const Card = memo(forwardRef((props, ref) => { paint(); return null; }));\n",
+        "function setup() {\n"
+        "  const Card = memo(forwardRef((props, ref) => { paint(); return null; }));\n"
+        "  return Card;\n"
+        "}\n",
     )
 
-    assert set(_functions(nodes)) == {"Card"}
+    assert set(_functions(nodes)) == {"Card", "setup"}
     assert _call_pairs(path, edges) == {
-        ("Card", "memo"),
-        ("Card", "forwardRef"),
+        ("setup", "memo"),
+        ("setup", "forwardRef"),
         ("Card", "paint"),
     }
+
+
+def test_a_value_returning_single_argument_call_is_not_a_component(tmp_path):
+    """A lone function argument does not make the result callable (#972).
+
+    `evaluate(() => compute())` has the same shape as `memo(() => paint())` and
+    returns a number. Reading it as a definition invented a `result` function and
+    moved `compute`'s caller off `setup`, which is the function that makes the call.
+    """
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "app.ts",
+        "function compute(): number { return 1; }\n"
+        "function evaluate(cb: () => number): number { return cb(); }\n"
+        "export function setup(): number {\n"
+        "  const result = evaluate(() => compute());\n"
+        "  return result;\n"
+        "}\n",
+    )
+
+    assert set(_functions(nodes)) == {"compute", "evaluate", "setup"}
+    assert ("setup", "evaluate") in _call_pairs(path, edges)
+    assert ("setup", "compute") in _call_pairs(path, edges)
+
+
+def test_a_sibling_declarator_keeps_its_call(tmp_path):
+    """One declaration can define a component AND call a function (#972).
+
+    The caller skips its generic recursion over the whole declaration as soon as a
+    function is extracted from it, so a declarator this pass does not own has to be
+    walked here or its calls are lost.
+    """
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "component.tsx",
+        "import { memo } from 'react';\n"
+        "function nextToken(): number { return 1; }\n"
+        "export function setup() {\n"
+        "  const Button = memo(() => paint()), token = nextToken();\n"
+        "  return [Button, token];\n"
+        "}\n",
+    )
+
+    pairs = _call_pairs(path, edges)
+    assert ("setup", "nextToken") in pairs
+    assert ("setup", "memo") in pairs
+    assert ("Button", "paint") in pairs
