@@ -197,6 +197,23 @@ def test_a_sibling_declarator_keeps_its_call(tmp_path):
     assert ("Button", "paint") in pairs
 
 
+def test_a_directly_assigned_function_keeps_its_sibling_declarators(tmp_path):
+    """The same holds when the function is assigned directly (#972).
+
+    Before, `const a = () => x(), b = y()` extracted `a` and skipped the whole
+    declaration, so the call to `y` was lost. The other declarators are now walked in
+    the enclosing scope whichever form the function has.
+    """
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "setup.js",
+        "function setup() {\n  const a = () => x(), b = y();\n  return [a, b];\n}\n",
+    )
+
+    assert set(_functions(nodes)) == {"setup", "a"}
+    assert _call_pairs(path, edges) == {("a", "x"), ("setup", "y")}
+
+
 def test_a_member_expression_wrapper_is_unwrapped(tmp_path):
     """`React.memo(fn)` names the wrapper through a member expression: the wrapper is
     the property, and type arguments between callee and call do not hide it."""
