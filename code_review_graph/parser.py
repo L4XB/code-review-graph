@@ -10058,7 +10058,7 @@ class CodeParser:
                 elif sub.type == "call_expression":
                     # Higher-order wrappers (forwardRef, memo, observer, ...) hide
                     # the component's function inside the call's arguments.
-                    chain = []
+                    chain: list = []
                     wrapped = self._js_wrapped_function(sub, chain=chain)
                     if wrapped is not None:
                         func_node = wrapped
