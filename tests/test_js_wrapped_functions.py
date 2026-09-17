@@ -1,4 +1,4 @@
-"""Components wrapped in a higher-order call (forwardRef, memo, ...) get Function nodes."""
+"""Components wrapped in a higher-order call (forwardRef, memo, ...) get Function nodes (#972)."""
 
 from pathlib import Path
 
@@ -195,3 +195,32 @@ def test_a_sibling_declarator_keeps_its_call(tmp_path):
     assert ("setup", "nextToken") in pairs
     assert ("setup", "memo") in pairs
     assert ("Button", "paint") in pairs
+
+
+def test_a_member_expression_wrapper_is_unwrapped(tmp_path):
+    """`React.memo(fn)` names the wrapper through a member expression: the wrapper is
+    the property, and type arguments between callee and call do not hide it."""
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "fields.tsx",
+        "import React from 'react';\n"
+        "export function setup() {\n"
+        "  const Card = React.memo((props) => { paint(); return null; });\n"
+        "  const Input = React.forwardRef<HTMLInputElement, Props>((props, ref) => {\n"
+        "    focus();\n"
+        "    return null;\n"
+        "  });\n"
+        "  return [Card, Input];\n"
+        "}\n",
+    )
+
+    functions = _functions(nodes)
+    assert set(functions) == {"setup", "Card", "Input"}
+    assert functions["Input"].params == "(props, ref)"
+    assert (functions["Input"].line_start, functions["Input"].line_end) == (4, 7)
+    assert _call_pairs(path, edges) == {
+        ("setup", "memo"),
+        ("setup", "forwardRef"),
+        ("Card", "paint"),
+        ("Input", "focus"),
+    }
