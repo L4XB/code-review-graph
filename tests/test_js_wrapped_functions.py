@@ -314,3 +314,54 @@ def test_the_rest_of_a_wrapper_call_stays_in_the_enclosing_scope(tmp_path):
         ("setup", "mapState"),
         ("setup", "Props"),
     }
+
+
+def test_memo_takes_a_props_comparator(tmp_path):
+    """`memo(Component, arePropsEqual)` is the documented React API (#972).
+
+    The component is still the first argument. The comparator is not part of it: an
+    inline one runs where the declaration is, and a named one stays referenced there.
+    """
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "Chart.jsx",
+        "function arePropsEqual(prev, next) { return prev.id === next.id; }\n"
+        "export function setup() {\n"
+        "  const Chart = memo(function Chart({ points }) {\n"
+        "    draw(points);\n"
+        "    return null;\n"
+        "  }, arePropsEqual);\n"
+        "  const Row = memo(forwardRef((props, ref) => paint()), (a, b) => same(a, b));\n"
+        "  return [Chart, Row];\n"
+        "}\n",
+    )
+
+    functions = _functions(nodes)
+    assert set(functions) == {"arePropsEqual", "setup", "Chart", "Row"}
+    assert functions["Chart"].params == "({ points })"
+    assert (functions["Chart"].line_start, functions["Chart"].line_end) == (3, 6)
+    assert functions["Row"].params == "(props, ref)"
+    assert _call_pairs(path, edges) == {
+        ("setup", "memo"),
+        ("setup", "forwardRef"),
+        ("setup", "same"),
+        ("Chart", "draw"),
+        ("Row", "paint"),
+    }
+    assert _reference_pairs(path, edges) == {("setup", "arePropsEqual")}
+
+
+def test_forward_ref_takes_exactly_one_argument(tmp_path):
+    """Only memo has a second argument. `forwardRef(fn, extra)` is not the React API, so
+    the declaration stays a plain call and its calls stay on `setup`."""
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "Input.jsx",
+        "function setup() {\n"
+        "  const Input = forwardRef((props, ref) => focus(), extra);\n"
+        "  return Input;\n"
+        "}\n",
+    )
+
+    assert set(_functions(nodes)) == {"setup"}
+    assert _call_pairs(path, edges) == {("setup", "forwardRef"), ("setup", "focus")}

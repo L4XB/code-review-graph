@@ -9983,10 +9983,11 @@ class CodeParser:
         ({@link _JS_COMPONENT_WRAPPERS}), and it has to take the function as its ONLY
         argument: a call that takes a callback among others is computing a value, and
         ``useMemo(() => x, [dep])`` assigns whatever it returns rather than the
-        callback. Calls without a function argument (``createClient({...})``) return
-        None as well.
+        callback. ``memo`` is the one exception, its documented second argument is the
+        props comparator: ``memo(fn, arePropsEqual)``. Calls without a function
+        argument (``createClient({...})``) return None as well.
 
-        ``chain``, when given, collects every wrapper call traversed, outermost first.
+        ``chain``, when given, collects every wrapper call traversed, innermost first.
         Each of them runs where the declaration is, so the caller records them against
         the enclosing function rather than against the component.
         """
@@ -10001,7 +10002,7 @@ class CodeParser:
         if arguments is None:
             return None
         args = arguments.named_children
-        if len(args) != 1:
+        if len(args) != 1 and not (name == "memo" and len(args) == 2):
             return None
         arg = args[0]
         if arg.type in self._JS_FUNC_VALUE_TYPES:
@@ -10131,10 +10132,16 @@ class CodeParser:
                     _depth + 1,
                 )
                 # So does the rest of the wrapper call: the inner call of a curried
-                # `connect(mapState)(fn)` or `styled(Base)(fn)`, and the type
-                # arguments of `forwardRef<El, Props>(fn)`. Only the arguments lead
-                # to the component.
+                # `connect(mapState)(fn)` or `styled(Base)(fn)`, the type arguments
+                # of `forwardRef<El, Props>(fn)` and memo's comparator. Only the
+                # first argument leads to the component.
+                arguments = wrapper_call.child_by_field_name("arguments")
+                self._extract_value_references(
+                    arguments, arguments.type, source, language, file_path, edges,
+                    enclosing_class, enclosing_func, import_map, defined_names,
+                )
                 rest = [part for part in wrapper_call.children if part.type != "arguments"]
+                rest.extend(arguments.named_children[1:])
                 self._extract_from_tree(
                     _NodeGroup(rest), source, language, file_path, nodes, edges,
                     enclosing_class=enclosing_class,
