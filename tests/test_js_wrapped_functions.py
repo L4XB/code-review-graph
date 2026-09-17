@@ -365,3 +365,21 @@ def test_forward_ref_takes_exactly_one_argument(tmp_path):
 
     assert set(_functions(nodes)) == {"setup"}
     assert _call_pairs(path, edges) == {("setup", "forwardRef"), ("setup", "focus")}
+
+
+def test_a_wrapped_declaration_keeps_its_type_annotation_reference(tmp_path):
+    """`const Card: FC<Props> = memo(...)` was walked whole before it counted as a
+    definition, so `Props` was referenced from the enclosing scope. It still is (#972)."""
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "Card.tsx",
+        "interface Props { id: string }\n"
+        "export function setup() {\n"
+        "  const Card: FC<Props> = memo(() => paint());\n"
+        "  return Card;\n"
+        "}\n",
+    )
+
+    assert set(_functions(nodes)) == {"setup", "Card"}
+    assert _call_pairs(path, edges) == {("setup", "memo"), ("Card", "paint")}
+    assert _reference_pairs(path, edges) == {("setup", "Props")}

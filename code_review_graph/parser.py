@@ -10120,6 +10120,13 @@ class CodeParser:
                 defined_names=defined_names,
                 _depth=_depth + 1,
             )
+            # A wrapped declaration was walked whole before it counted as a
+            # definition, and what it evaluates besides the component still belongs
+            # to the enclosing scope. That starts with its type annotation:
+            # `const Card: FC<Props> = memo(...)` references Props from here.
+            rest: list = []
+            if wrapper_calls:
+                rest = [sub for sub in declarator.children if sub.type == "type_annotation"]
             for wrapper_call in wrapper_calls:
                 # `memo(...)` and any wrapper it nests are called where the
                 # declaration is, so the edges belong to the enclosing function.
@@ -10140,8 +10147,9 @@ class CodeParser:
                     arguments, arguments.type, source, language, file_path, edges,
                     enclosing_class, enclosing_func, import_map, defined_names,
                 )
-                rest = [part for part in wrapper_call.children if part.type != "arguments"]
+                rest.extend(part for part in wrapper_call.children if part.type != "arguments")
                 rest.extend(arguments.named_children[1:])
+            if rest:
                 self._extract_from_tree(
                     _NodeGroup(rest), source, language, file_path, nodes, edges,
                     enclosing_class=enclosing_class,
