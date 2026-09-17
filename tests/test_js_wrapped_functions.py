@@ -224,3 +224,46 @@ def test_a_member_expression_wrapper_is_unwrapped(tmp_path):
         ("Card", "paint"),
         ("Input", "focus"),
     }
+
+
+def test_an_unknown_inner_wrapper_is_not_unwrapped(tmp_path):
+    """`memo(wrap(fn))`: `wrap` is not a component wrapper, so `memo` does not receive a
+    function and the declaration is not a definition. Every call stays on `setup`."""
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "Card.jsx",
+        "function setup() {\n  const Card = memo(wrap(() => paint()));\n  return Card;\n}\n",
+    )
+
+    assert set(_functions(nodes)) == {"setup"}
+    assert _call_pairs(path, edges) == {
+        ("setup", "memo"),
+        ("setup", "wrap"),
+        ("setup", "paint"),
+    }
+
+
+def test_wrappers_nested_past_the_depth_limit_are_not_unwrapped(tmp_path):
+    """The outermost wrapper plus `_JS_WRAPPER_MAX_DEPTH` nested ones are unwrapped;
+    one more and the declaration is left to the generic walk."""
+    limit = CodeParser._JS_WRAPPER_MAX_DEPTH + 1
+    within = "memo(" * limit + "() => paint()" + ")" * limit
+    beyond = "memo(" * (limit + 1) + "() => draw()" + ")" * (limit + 1)
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "deep.jsx",
+        "function setup() {\n"
+        f"  const Within = {within};\n"
+        f"  const Beyond = {beyond};\n"
+        "  return [Within, Beyond];\n"
+        "}\n",
+    )
+
+    assert set(_functions(nodes)) == {"setup", "Within"}
+    assert _call_pairs(path, edges) == {
+        ("setup", "memo"),
+        ("Within", "paint"),
+        ("setup", "draw"),
+    }
+    memo_calls = [edge for edge in edges if edge.kind == "CALLS" and edge.target == "memo"]
+    assert len(memo_calls) == limit + (limit + 1)
