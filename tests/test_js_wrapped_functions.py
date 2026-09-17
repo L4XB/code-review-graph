@@ -458,3 +458,26 @@ def test_a_wrapped_declaration_keeps_its_type_annotation_reference(tmp_path):
     assert set(_functions(nodes)) == {"setup", "Card"}
     assert _call_pairs(path, edges) == {("setup", "memo"), ("Card", "paint")}
     assert _reference_pairs(path, edges) == {("setup", "Props")}
+
+
+def test_a_directly_assigned_function_does_not_walk_its_annotation(tmp_path):
+    """Only the wrapped form gets its annotation walked.
+
+    A directly assigned function has only ever had the function itself walked, so
+    `Props` in `const Card: FC<Props> = () => ...` is not referenced from the
+    enclosing scope. #972 leaves that as it is; this pins that the annotation walk
+    added for wrapped declarations does not reach the direct form.
+    """
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "Card.tsx",
+        "interface Props { id: string }\n"
+        "export function setup() {\n"
+        "  const Card: FC<Props> = () => paint();\n"
+        "  return Card;\n"
+        "}\n",
+    )
+
+    assert set(_functions(nodes)) == {"setup", "Card"}
+    assert _call_pairs(path, edges) == {("Card", "paint")}
+    assert _reference_pairs(path, edges) == set()
