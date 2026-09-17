@@ -111,6 +111,17 @@ class _PyReceiverContext(NamedTuple):
     local_returns: dict[str, str]
 
 
+class _NodeGroup(NamedTuple):
+    """A stand-in parent for some of a tree-sitter node's children.
+
+    ``CodeParser._extract_from_tree`` only reads its root's ``children``, so a
+    group lets it visit a chosen subset exactly as a walk over the real parent
+    would have visited them.
+    """
+
+    children: list
+
+
 @lru_cache(maxsize=512)
 def _read_cargo_manifest(
     manifest_path: str, _mtime_ns: int, _size: int,
@@ -10118,6 +10129,19 @@ class CodeParser:
                     wrapper_call, source, language, file_path, nodes, edges,
                     enclosing_class, enclosing_func, import_map, defined_names,
                     _depth + 1,
+                )
+                # So does the rest of the wrapper call: the inner call of a curried
+                # `connect(mapState)(fn)` or `styled(Base)(fn)`, and the type
+                # arguments of `forwardRef<El, Props>(fn)`. Only the arguments lead
+                # to the component.
+                rest = [part for part in wrapper_call.children if part.type != "arguments"]
+                self._extract_from_tree(
+                    _NodeGroup(rest), source, language, file_path, nodes, edges,
+                    enclosing_class=enclosing_class,
+                    enclosing_func=enclosing_func,
+                    import_map=import_map,
+                    defined_names=defined_names,
+                    _depth=_depth + 1,
                 )
             handled = True
 

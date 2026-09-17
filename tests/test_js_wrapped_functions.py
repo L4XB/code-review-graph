@@ -267,3 +267,50 @@ def test_wrappers_nested_past_the_depth_limit_are_not_unwrapped(tmp_path):
     }
     memo_calls = [edge for edge in edges if edge.kind == "CALLS" and edge.target == "memo"]
     assert len(memo_calls) == limit + (limit + 1)
+
+
+def _reference_pairs(path: Path, edges):
+    prefix = f"{path.resolve().as_posix()}::"
+    return {
+        (edge.source.replace(prefix, ""), edge.target.rsplit("::", 1)[-1])
+        for edge in edges
+        if edge.kind == "REFERENCES"
+    }
+
+
+def test_the_rest_of_a_wrapper_call_stays_in_the_enclosing_scope(tmp_path):
+    """Only the wrapped function is the component (#972).
+
+    The inner call of a curried wrapper and the type arguments are evaluated where the
+    declaration is. Skipping them lost the `styled` and `connect` calls, and the
+    references that keep `Base`, `mapState` and `Props` from looking unused.
+    """
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "wrapped.tsx",
+        "interface Props { id: string }\n"
+        "function Base() { return null; }\n"
+        "function mapState(state) { return state; }\n"
+        "export function setup() {\n"
+        "  const Box = styled(Base)(() => theme());\n"
+        "  const Page = connect(mapState, (d) => bind(d))(() => render());\n"
+        "  const Button = forwardRef<HTMLButtonElement, Props>(() => paint());\n"
+        "  return [Box, Page, Button];\n"
+        "}\n",
+    )
+
+    assert set(_functions(nodes)) == {"Base", "mapState", "setup", "Box", "Page", "Button"}
+    assert _call_pairs(path, edges) == {
+        ("setup", "styled"),
+        ("setup", "connect"),
+        ("setup", "bind"),
+        ("setup", "forwardRef"),
+        ("Box", "theme"),
+        ("Page", "render"),
+        ("Button", "paint"),
+    }
+    assert _reference_pairs(path, edges) == {
+        ("setup", "Base"),
+        ("setup", "mapState"),
+        ("setup", "Props"),
+    }
