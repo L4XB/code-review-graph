@@ -367,6 +367,22 @@ def test_forward_ref_takes_exactly_one_argument(tmp_path):
     assert _call_pairs(path, edges) == {("setup", "forwardRef"), ("setup", "focus")}
 
 
+def test_memo_takes_at_most_one_comparator(tmp_path):
+    """The comparator is memo's only second argument. `memo(fn, eq, extra)` is not the
+    React API, so the declaration stays a plain call and its calls stay on `setup`."""
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "Chart.jsx",
+        "function setup() {\n"
+        "  const Chart = memo((props) => draw(), eq, extra);\n"
+        "  return Chart;\n"
+        "}\n",
+    )
+
+    assert set(_functions(nodes)) == {"setup"}
+    assert _call_pairs(path, edges) == {("setup", "memo"), ("setup", "draw")}
+
+
 def test_a_wrapped_declaration_keeps_its_type_annotation_reference(tmp_path):
     """`const Card: FC<Props> = memo(...)` was walked whole before it counted as a
     definition, so `Props` was referenced from the enclosing scope. It still is (#972)."""
