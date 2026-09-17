@@ -383,6 +383,48 @@ def test_memo_takes_at_most_one_comparator(tmp_path):
     assert _call_pairs(path, edges) == {("setup", "memo"), ("setup", "draw")}
 
 
+def test_comments_are_not_wrapper_arguments(tmp_path):
+    """Tree-sitter lists comments among a call's arguments (#972).
+
+    Counted as arguments, a lint directive above the function turned `forwardRef(fn)`
+    into a two-argument call, and a comment next to the comparator did the same to
+    `memo(fn, eq)`. The rest of the call is walked without them too, so a comment
+    before the function does not make the component look like the comparator and get
+    walked a second time in the enclosing scope. The legacy `<!--` line comment is a
+    comment node of the same kind.
+    """
+    path, (nodes, edges) = _parse(
+        tmp_path,
+        "fields.jsx",
+        "function isEqual(a, b) { return a === b; }\n"
+        "function setup() {\n"
+        "  const Input = forwardRef(\n"
+        "    // eslint-disable-next-line react/display-name\n"
+        "    (props, ref) => focus(),\n"
+        "  );\n"
+        "  const Label = forwardRef((props, ref) => text() /* inline */);\n"
+        "  const Chart = memo(/* why */ (props) => draw(), /* cmp */ isEqual);\n"
+        "  const Legacy = observer(\n"
+        "    <!-- legacy\n"
+        "    () => render()\n"
+        "  );\n"
+        "  return [Input, Label, Chart, Legacy];\n"
+        "}\n",
+    )
+
+    assert set(_functions(nodes)) == {"isEqual", "setup", "Input", "Label", "Chart", "Legacy"}
+    assert _call_pairs(path, edges) == {
+        ("setup", "forwardRef"),
+        ("setup", "memo"),
+        ("setup", "observer"),
+        ("Input", "focus"),
+        ("Label", "text"),
+        ("Chart", "draw"),
+        ("Legacy", "render"),
+    }
+    assert _reference_pairs(path, edges) == {("setup", "isEqual")}
+
+
 def test_a_wrapped_declaration_keeps_its_type_annotation_reference(tmp_path):
     """`const Card: FC<Props> = memo(...)` was walked whole before it counted as a
     definition, so `Props` was referenced from the enclosing scope. It still is (#972)."""

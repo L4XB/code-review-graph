@@ -9956,6 +9956,16 @@ class CodeParser:
         "connect", "styled", "inject", "withTranslation", "withErrorBoundary",
     })
 
+    # Grammar extras that tree-sitter lists among a call's named arguments.
+    _JS_COMMENT_TYPES = frozenset({"comment", "html_comment"})
+
+    def _js_argument_values(self, arguments) -> list:
+        """The arguments of a call, without the comments between them.
+
+        ``forwardRef(/* why */ fn)`` passes one argument, not two.
+        """
+        return [arg for arg in arguments.named_children if arg.type not in self._JS_COMMENT_TYPES]
+
     def _js_wrapper_name(self, call_node) -> Optional[str]:
         """The wrapper a call applies, or None when the callee is not a plain name.
 
@@ -10001,7 +10011,7 @@ class CodeParser:
                 break
         if arguments is None:
             return None
-        args = arguments.named_children
+        args = self._js_argument_values(arguments)
         if len(args) != 1 and not (name == "memo" and len(args) == 2):
             return None
         arg = args[0]
@@ -10148,7 +10158,7 @@ class CodeParser:
                     enclosing_class, enclosing_func, import_map, defined_names,
                 )
                 rest.extend(part for part in wrapper_call.children if part.type != "arguments")
-                rest.extend(arguments.named_children[1:])
+                rest.extend(self._js_argument_values(arguments)[1:])
             if rest:
                 self._extract_from_tree(
                     _NodeGroup(rest), source, language, file_path, nodes, edges,
