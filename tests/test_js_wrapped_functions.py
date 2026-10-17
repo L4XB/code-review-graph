@@ -1365,13 +1365,6 @@ def test_one_declaration_mixing_wrapped_direct_and_plain_declarators(tmp_path):
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "#972 regression: the first call of a curried wrapper (connect(fn), "
-        "withStyles(fn), inject(fn)) is indexed as a component"
-    ),
-)
 def test_the_first_call_of_a_curried_wrapper_is_not_a_component(tmp_path):
     """`connect`, `withStyles`, `inject`, `withTranslation` and `styled` are curried:
     the first call takes configuration and returns a wrapper, and only the second call,

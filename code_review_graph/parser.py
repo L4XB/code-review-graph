@@ -10117,6 +10117,13 @@ class CodeParser:
         "connect", "styled", "inject", "withTranslation", "withErrorBoundary",
     })
 
+    # Curried wrappers: the first call takes configuration and returns the wrapper, and
+    # only the second call, ``connect(mapState)(Component)``, makes a component. The
+    # function in a first call is a selector, a style sheet or a callback.
+    _JS_CURRIED_WRAPPERS = frozenset(
+        {"connect", "withStyles", "inject", "withTranslation", "styled"},
+    )
+
     # Grammar extras that tree-sitter lists among a call's named arguments.
     _JS_COMMENT_TYPES = frozenset({"comment", "html_comment"})
 
@@ -10176,6 +10183,10 @@ class CodeParser:
         """
         name = self._js_wrapper_name(call_node)
         if name is None or name not in self._JS_COMPONENT_WRAPPERS:
+            return None
+        callee = call_node.children[0] if call_node.children else None
+        curried = name in self._JS_CURRIED_WRAPPERS
+        if curried and (callee is None or callee.type != "call_expression"):
             return None
         arguments = None
         for sub in call_node.children:
