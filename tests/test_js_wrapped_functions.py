@@ -4,8 +4,6 @@ import time
 from collections import Counter
 from pathlib import Path, PureWindowsPath
 
-import pytest
-
 from code_review_graph.graph import GraphStore
 from code_review_graph.incremental import full_build, incremental_update
 from code_review_graph.parser import CodeParser
